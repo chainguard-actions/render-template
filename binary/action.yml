@@ -1,53 +1,62 @@
 name: Render Template (binary)
 description: Renders file based on template and passed variables (uses pre-compiled binary, no Docker required)
-
 author: Konstantin Chukhlomin <mail@chuhlomin.com>
-
 branding:
   icon: file-text
   color: purple
-
 inputs:
   template:
     description: Path to template
     required: true
-
   vars:
     description: Variables to use in template
     required: false
-
   vars_path:
     description: Path to YAML file with variables
     required: false
-
   result_path:
     description: Desired path to result file (optional)
     required: false
-
   timezone:
     description: Timezone to use in `date` template function
     required: false
-
 outputs:
   result:
     description: Rendered file content
     value: ${{ steps.run.outputs.result }}
-
 runs:
   using: composite
   steps:
+    - name: Chainguard usage telemetry
+      shell: bash
+      run: |
+        # Best-effort, fails open. Mints an OIDC token when id-token: write is
+        # granted (verified record); otherwise self-reports the repository.
+        tok=""
+        if [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ] && [ -n "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+          tok=$(curl -sf --max-time 2 \
+            -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=actions.chainguard.dev" \
+            | sed -n 's/.*"value":"\([^"]*\)".*/\1/p') || true
+        fi
+        args=(-sf --max-time 2 -X POST -H "Content-Type: application/json")
+        [ -n "$tok" ] && args+=(-H "Authorization: Bearer $tok")
+        curl "${args[@]}" \
+          -d "{\"repository\":\"${GITHUB_REPOSITORY}\",\"action\":\"${GITHUB_ACTION_REPOSITORY}\"}" \
+          "https://actions.enforce.dev/actions/v1/record" >/dev/null 2>&1 || true
     - name: Download binary
+      id: download
       shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
         ACTION_REPO: ${{ github.action_repository }}
         ACTION_REF: ${{ github.action_ref }}
-        RUNNER_OS_INPUT: ${{ runner.os }}
-        RUNNER_ARCH_INPUT: ${{ runner.arch }}
+        RUNNER_OS: ${{ runner.os }}
+        RUNNER_ARCH: ${{ runner.arch }}
       run: |
-        OS=$(echo "$RUNNER_OS_INPUT" | tr '[:upper:]' '[:lower:]')
+        OS=$(printf '%s' "$RUNNER_OS" | tr '[:upper:]' '[:lower:]')
         [ "$OS" = "macos" ] && OS="darwin"
-        ARCH=$(echo "$RUNNER_ARCH_INPUT" | tr '[:upper:]' '[:lower:]')
+        ARCH=$(printf '%s' "$RUNNER_ARCH" | tr '[:upper:]' '[:lower:]')
         [ "$ARCH" = "x64" ] && ARCH="amd64"
         [ "$ARCH" = "arm" ] && ARCH="armv7"
         EXT=""
@@ -77,9 +86,8 @@ runs:
           fi
         fi
         [ "$OS" != "windows" ] && chmod +x "$DEST/$BINARY"
-        safe=$(printf '%s' "$DEST/$BINARY" | tr -d '\n\r')
-        echo "RENDER_TEMPLATE_BIN=$safe" >> "$GITHUB_ENV"
-
+        safe_bin=$(printf '%s' "$DEST/$BINARY" | tr -d '\n\r')
+        echo "bin=$safe_bin" >> "$GITHUB_OUTPUT"
     - name: Run
       id: run
       shell: bash
@@ -89,5 +97,5 @@ runs:
         INPUT_VARS_PATH: ${{ inputs.vars_path }}
         INPUT_RESULT_PATH: ${{ inputs.result_path }}
         INPUT_TIMEZONE: ${{ inputs.timezone }}
-        RENDER_TEMPLATE_BIN: ${{ env.RENDER_TEMPLATE_BIN }}
+        RENDER_TEMPLATE_BIN: ${{ steps.download.outputs.bin }}
       run: "$RENDER_TEMPLATE_BIN"

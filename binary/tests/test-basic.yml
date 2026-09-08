@@ -1,0 +1,30 @@
+name: Test basic template rendering with vars
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          template: hardened/tests/fixtures/basic.tmpl
+          vars: |
+            name=World
+
+      - name: Assert rendered output contains expected content
+        env:
+          RESULT: ${{ steps.action.outputs.result }}
+        run: |
+          echo "result: $RESULT"
+          if [ -z "$RESULT" ]; then
+            echo "FAIL: result output is empty"
+            exit 1
+          fi
+          if ! echo "$RESULT" | grep -q "World"; then
+            echo "FAIL: expected 'World' in result"
+            exit 1
+          fi
+          echo "PASS"

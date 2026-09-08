@@ -1,0 +1,34 @@
+name: Test template rendering with result_path and timezone
+on:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - id: action
+        uses: .
+        with:
+          template: hardened/tests/fixtures/date.tmpl
+          vars: |
+            name=TestUser
+          result_path: /tmp/rendered-output.txt
+          timezone: America/New_York
+
+      - name: Assert result_path file was created with expected content
+        env:
+          RESULT: ${{ steps.action.outputs.result }}
+        run: |
+          echo "result output: $RESULT"
+          if [ ! -f /tmp/rendered-output.txt ]; then
+            echo "FAIL: result_path file was not created"
+            exit 1
+          fi
+          CONTENT="$(cat /tmp/rendered-output.txt)"
+          echo "file content: $CONTENT"
+          if ! echo "$CONTENT" | grep -q "TestUser"; then
+            echo "FAIL: expected 'TestUser' in rendered file"
+            exit 1
+          fi
+          echo "PASS"
